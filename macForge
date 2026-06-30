@@ -1,0 +1,744 @@
+#!/usr/bin/env bash
+#
+# macForge - macOS machine bootstrap & backup tool
+# Supports multiple machines/profiles for different users.
+#
+# Usage:
+#   ./macForge apply --machine <name> [--yes]
+#   ./macForge backup --machine <name> [--yes] [--commit]
+#
+# The tool works from a plain directory tree (no git required for apply).
+# Great for users who received the files via zip/tar/rsync without a GitHub account.
+
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_BREWFILE="$SCRIPT_DIR/Brewfile.common"
+SCRIPTS_DIR="$SCRIPT_DIR/scripts"
+DOCS_DIR="$SCRIPT_DIR/docs"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log()   { echo -e "${BLUE}==>${NC} $1"; }
+success() { echo -e "${GREEN}✓${NC} $1"; }
+warn()  { echo -e "${YELLOW}!${NC} $1"; }
+error() { echo -e "${RED}✗${NC} $1" >&2; }
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# -----------------------------------------------------------------------------
+# Help
+# -----------------------------------------------------------------------------
+usage() {
+  cat <<EOF
+macForge - Reproducible multi-machine macOS setup
+
+Commands:
+  apply   Apply configuration for a machine
+  backup  Capture current machine state into the repo (for the given machine)
+
+Options:
+  --machine NAME   Required. e.g. personal, wife-macbook, work
+  --yes            Non-interactive. Auto-accept changes (backup) and skip prompts.
+  --commit         With --yes on backup: attempt to git add + commit the changes.
+  --dry-run        Show what would be done without making changes (limited support).
+
+Examples:
+  ./macForge backup --machine personal
+  ./macForge backup --machine personal --yes --commit
+  ./macForge apply  --machine personal
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# Path helpers for a machine
+# -----------------------------------------------------------------------------
+machine_dir() {
+  echo "$SCRIPT_DIR/machines/$1"
+}
+
+machine_brewfile() {
+  echo "$(machine_dir "$1")/Brewfile"
+}
+
+machine_configs_dir() {
+  echo "$(machine_dir "$1")/configs"
+}
+
+machine_manual() {
+  echo "$(machine_dir "$1")/MANUAL.md"
+}
+
+# -----------------------------------------------------------------------------
+# Core install steps (refactored from old install, generalized for machines)
+# -----------------------------------------------------------------------------
+install_xcode_cli() {
+  log "Checking Xcode Command Line Tools..."
+  if xcode-select -p &>/dev/null; then
+    success "Xcode Command Line Tools already installed"
+    return
+  fi
+  log "Installing Xcode Command Line Tools (this may take a while)..."
+  xcode-select --install || true
+  until xcode-select -p &>/dev/null; do sleep 5; done
+  success "Xcode Command Line Tools installed"
+}
+
+install_homebrew() {
+  log "Checking Homebrew..."
+  if command_exists brew; then
+    success "Homebrew already installed"
+  else
+    log "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    success "Homebrew installed"
+  fi
+
+  if [[ -x /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [[ -x /usr/local/bin/brew ]]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+}
+
+# Install common first, then machine-specific
+install_packages() {
+  local machine="$1"
+
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would install common + machine packages for $machine"
+    return
+  fi
+
+  log "Installing common packages from Brewfile.common..."
+  if [[ -f "$COMMON_BREWFILE" ]]; then
+    brew bundle --file="$COMMON_BREWFILE"
+    success "Common packages installed/updated"
+  else
+    warn "No Brewfile.common found - skipping common packages"
+  fi
+
+  local mbrew
+  mbrew=$(machine_brewfile "$machine")
+  if [[ -f "$mbrew" ]]; then
+    log "Installing machine-specific packages for $machine..."
+    brew bundle --file="$mbrew"
+    success "Machine packages installed/updated"
+  else
+    warn "No machine Brewfile for $machine - skipping"
+  fi
+}
+
+# Restore configs: common first, then machine-specific (machine wins)
+# We map from the stored layout under configs/ to real $HOME locations.
+restore_configs() {
+  local machine="$1"
+  local src_common="$SCRIPT_DIR/common/configs"
+  local src_machine
+  src_machine=$(machine_configs_dir "$machine")
+
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would restore configs for $machine"
+    return
+  fi
+
+  log "Restoring configuration files..."
+
+  restore_one_tree() {
+    local src="$1"
+    [[ -d "$src" ]] || return 0
+
+    # zsh special files → dotfiles in ~
+    if [[ -f "$src/zsh/.zshrc" ]]; then
+      cp -f "$src/zsh/.zshrc" "$HOME/.zshrc"
+    fi
+    if [[ -f "$src/zsh/.zprofile" ]]; then
+      cp -f "$src/zsh/.zprofile" "$HOME/.zprofile"
+    fi
+    if [[ -f "$src/zsh/.p10k.zsh" ]]; then
+      cp -f "$src/zsh/.p10k.zsh" "$HOME/.p10k.zsh"
+    fi
+
+    # git
+    if [[ -f "$src/git/.gitconfig" ]]; then
+      mkdir -p "$HOME/.config/git"
+      cp -f "$src/git/.gitconfig" "$HOME/.gitconfig"
+    fi
+
+    # Editor support dirs (Cursor / VS Code) - copy the User contents
+    if [[ -d "$src/cursor/User" ]]; then
+      mkdir -p "$HOME/Library/Application Support/Cursor/User"
+      cp -R "$src/cursor/User/" "$HOME/Library/Application Support/Cursor/User/"
+    fi
+    if [[ -d "$src/vscode/User" ]]; then
+      mkdir -p "$HOME/Library/Application Support/Code/User"
+      cp -R "$src/vscode/User/" "$HOME/Library/Application Support/Code/User/"
+    fi
+
+    # iterm2 (if user exported prefs there)
+    if [[ -d "$src/iterm2" ]]; then
+      mkdir -p "$HOME/.config/iterm2"
+      cp -R "$src/iterm2/" "$HOME/.config/iterm2/"
+    fi
+  }
+
+  restore_one_tree "$src_common"
+  success "Common layer restored (where present)"
+
+  restore_one_tree "$src_machine"
+  success "Machine layer for $machine restored (overrides common)"
+}
+
+restore_editor_configs() {
+  # Uses the already copied files from restore_configs
+  local machine="$1"
+  log "Restoring editor configurations (if present)..."
+
+  # Cursor
+  local cursor_settings="$HOME/Library/Application Support/Cursor/User/settings.json"
+  if [[ -f "$HOME/configs/cursor/User/settings.json" ]]; then   # after copy above, they land in ~/
+    # The copy puts them under ~/<rel>, so adjust
+    mkdir -p "$HOME/Library/Application Support/Cursor/User"
+    cp -f "$HOME/configs/cursor/User/settings.json" "$HOME/Library/Application Support/Cursor/User/settings.json" 2>/dev/null || true
+    success "Restored Cursor settings (from copied configs)"
+  fi
+
+  # VS Code - similar
+  if [[ -f "$HOME/configs/vscode/User/settings.json" ]]; then
+    mkdir -p "$HOME/Library/Application Support/Code/User"
+    cp -f "$HOME/configs/vscode/User/settings.json" "$HOME/Library/Application Support/Code/User/settings.json" 2>/dev/null || true
+    success "Restored VS Code settings"
+  fi
+
+  # Note: extensions.txt are left for manual xargs install (as before)
+}
+
+apply_macos_defaults() {
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would apply macOS defaults + machine overrides"
+    return
+  fi
+
+  local script="$SCRIPTS_DIR/macos-defaults.sh"
+  if [[ -f "$script" ]]; then
+    log "Applying macOS system defaults..."
+    bash "$script"
+    success "macOS defaults applied"
+  else
+    warn "No macos-defaults.sh found"
+  fi
+
+  # Machine-specific defaults overrides (autocaptured safe ones)
+  local mdir
+  mdir=$(machine_dir "$1")
+  local override="$mdir/defaults.sh"
+  if [[ -f "$override" ]]; then
+    log "Applying machine-specific defaults overrides..."
+    bash "$override"
+    success "Machine defaults overrides applied"
+  fi
+}
+
+# Print and optionally write the "no scripted login" report
+report_no_scripted_login() {
+  local machine="$1"
+  local manual
+  manual=$(machine_manual "$machine")
+
+  echo
+  log "Applications installed that do not support scripted login:"
+
+  local datafile="$SCRIPT_DIR/data/apps-requiring-login.txt"
+  if [[ -f "$datafile" ]]; then
+    # Read non-comment lines
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^# ]] || [[ -z "$line" ]] && continue
+      echo "  • $line"
+    done < "$datafile"
+  else
+    # Fallback list
+    echo "  • LastPass (log in via GUI or lpass)"
+    echo "  • ExpressVPN, Tailscale, Moom, Parallels, CrossOver, CleanMyMac, etc."
+  fi
+
+  if [[ -f "$manual" ]]; then
+    echo
+    log "See also: $manual"
+  fi
+}
+
+post_apply_notes() {
+  local machine="$1"
+  echo
+  log "macForge apply complete for machine '$machine'!"
+  echo
+  echo "Common next manual steps:"
+  echo "  • Log into LastPass (if not already done during early bootstrap)"
+  echo "  • Restart terminal / iTerm2"
+  echo "  • Activate any paid licenses (Moom, Parallels, etc.)"
+  echo "  • Sign into browsers, VPNs, Microsoft apps, Steam/Battle.net"
+  echo
+  report_no_scripted_login "$machine"
+  echo
+  echo "Re-run safely anytime: ./macForge apply --machine $machine"
+}
+
+# -----------------------------------------------------------------------------
+# APPLY
+# -----------------------------------------------------------------------------
+do_apply() {
+  local machine="$1"
+  local yes="${2:-false}"
+
+  if [[ -z "$machine" ]]; then
+    error "--machine is required"
+    exit 1
+  fi
+
+  local mdir
+  mdir=$(machine_dir "$machine")
+  if [[ ! -d "$mdir" ]]; then
+    error "Machine profile not found: $mdir"
+    echo "Run 'backup' on that machine first, or create the directory manually."
+    exit 1
+  fi
+
+  echo
+  echo "macForge — applying '$machine'"
+  echo "================================"
+
+  install_xcode_cli
+  install_homebrew
+
+  # Early core for LastPass (the Brewfile.common has the early section)
+  log "Installing early core packages (LastPass)..."
+  brew bundle --file="$COMMON_BREWFILE" || true
+
+  echo
+  warn "Core tools including LastPass are installed."
+  echo "Please open LastPass (GUI or run 'lpass login') and authenticate now."
+  if [[ "$yes" != "true" ]]; then
+    read -r -p "Press Enter when ready to continue with the rest of the setup... "
+  else
+    echo "(--yes mode: continuing without waiting)"
+  fi
+
+  install_packages "$machine"
+
+  # Prominently show apps that do not support scripted login right after packages
+  report_no_scripted_login "$machine"
+
+  restore_configs "$machine"
+  restore_editor_configs "$machine"
+  apply_macos_defaults "$machine"
+
+  post_apply_notes "$machine"
+}
+
+# -----------------------------------------------------------------------------
+# BACKUP (aggressive)
+# -----------------------------------------------------------------------------
+discover_apps_to_casks() {
+  # Aggressive: try hard to turn installed .apps into cask lines
+  local out_file="$1"
+
+  log "Aggressively discovering GUI apps and mapping to casks..."
+
+  local apps=()
+  # /Applications and ~/Applications
+  while IFS= read -r -d $'\0' app; do
+    apps+=("$(basename "$app")")
+  done < <(find /Applications ~/Applications -maxdepth 1 -name "*.app" -print0 2>/dev/null | sort -z)
+
+  local added=0
+  for app in "${apps[@]}"; do
+    local token
+    token=$(guess_cask_token "$app") || continue
+
+    if [[ -n "$token" ]]; then
+      # Check if brew knows it
+      if brew info --cask "$token" >/dev/null 2>&1; then
+        if ! grep -q "cask \"$token\"" "$out_file" 2>/dev/null; then
+          echo "cask \"$token\"   # $app" >> "$out_file"
+          ((added++))
+        fi
+      fi
+    fi
+  done
+
+  if (( added > 0 )); then
+    success "Added/updated $added cask(s) from discovered apps"
+  else
+    warn "No new casks auto-discovered (or all already present)"
+  fi
+}
+
+guess_cask_token() {
+  local app="$1"
+  app=${app%.app}
+  app=${app// /}           # remove spaces
+  app=$(echo "$app" | tr '[:upper:]' '[:lower:]')
+
+  # Built-in known good mappings (extend over time)
+  case "$app" in
+    bravebrowser)          echo "brave-browser" ;;
+    cursor)                echo "cursor" ;;
+    iterm)                 echo "iterm2" ;;
+    visualstudiocode)      echo "visual-studio-code" ;;
+    aldente)               echo "aldente" ;;
+    betterdisplay)         echo "betterdisplay" ;;
+    moom)                  echo "moom" ;;
+    stats)                 echo "stats" ;;
+    tailscale)             echo "tailscale-app" ;;
+    uhkagent)              echo "uhk-agent" ;;
+    lastpass)              echo "lastpass" ;;
+    expressvpn)            echo "expressvpn" ;;
+    ollama)                echo "ollama-app" ;;
+    vlc)                   echo "vlc" ;;
+    zoom)                  echo "zoom" ;;
+    discord)               echo "discord" ;;
+    slack)                 echo "slack" ;;
+    whatsapp)              echo "whatsapp" ;;
+    microsoftteams)        echo "microsoft-teams" ;;
+    microsoftword)         echo "microsoft-word" ;;
+    microsoftexcel)        echo "microsoft-excel" ;;
+    microsoftpowerpoint)   echo "microsoft-powerpoint" ;;
+    microsoftoutlook)      echo "microsoft-outlook" ;;
+    onedrive)              echo "onedrive" ;;
+    steam)                 echo "steam" ;;
+    battlenet)             echo "battle-net" ;;
+    parallelsdesktop)      echo "parallels" ;;
+    crossover)             echo "crossover" ;;
+    whisky)                echo "whisky" ;;
+    nvidia-geforcenow)     echo "nvidia-geforce-now" ;;
+    openemu)               echo "openemu" ;;
+    sonos)                 echo "sonos" ;;
+    synologydrive)         echo "synology-drive" ;;
+    *)                     echo "" ;;
+  esac
+}
+
+capture_configs() {
+  local machine="$1"
+  local dest
+  dest=$(machine_configs_dir "$machine")
+  mkdir -p "$dest"
+
+  log "Aggressively capturing configuration contents..."
+
+  # Explicit known good locations (aggressive but safe)
+  local paths=(
+    "$HOME/.zshrc"
+    "$HOME/.zprofile"
+    "$HOME/.p10k.zsh"
+    "$HOME/.gitconfig"
+    "$HOME/Library/Application Support/Cursor/User/settings.json"
+    "$HOME/Library/Application Support/Cursor/User/keybindings.json"
+    "$HOME/Library/Application Support/Code/User/settings.json"
+    "$HOME/Library/Application Support/Code/User/keybindings.json"
+    "$HOME/.config"          # whole thing if present - aggressive
+  )
+
+  for p in "${paths[@]}"; do
+    if [[ -e "$p" ]]; then
+      local rel
+      rel=${p#$HOME/}
+      mkdir -p "$dest/$(dirname "$rel")"
+      cp -R "$p" "$dest/$rel" 2>/dev/null || true
+    fi
+  done
+
+  # Capture editor extensions lists (aggressive)
+  if command_exists cursor; then
+    cursor --list-extensions > "$dest/cursor/User/extensions.txt" 2>/dev/null || true
+  fi
+  if command_exists code; then
+    code --list-extensions > "$dest/vscode/User/extensions.txt" 2>/dev/null || true
+  fi
+
+  success "Configuration contents captured"
+}
+
+capture_safe_defaults() {
+  local machine="$1"
+  local dest_dir
+  dest_dir=$(machine_dir "$machine")
+  mkdir -p "$dest_dir"
+
+  log "Autocapturing safe portable defaults..."
+
+  # Whitelist of generally safe, portable keys
+  local safe_keys=(
+    "NSGlobalDomain ApplePressAndHoldEnabled"
+    "NSGlobalDomain KeyRepeat"
+    "NSGlobalDomain InitialKeyRepeat"
+    "com.apple.dock tilesize"
+    "com.apple.dock autohide"
+    "com.apple.dock magnification"
+    "com.apple.dock largesize"
+    "com.apple.dock mineffect"
+    "com.apple.finder AppleShowAllFiles"
+    "com.apple.finder AppleShowAllExtensions"
+    "com.apple.finder ShowStatusBar"
+    "com.apple.finder ShowPathbar"
+    "com.apple.finder FXPreferredViewStyle"
+    "com.apple.screencapture location"
+    "com.apple.screencapture type"
+    "com.apple.screencapture disable-shadow"
+  )
+
+  local out="$dest_dir/defaults.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    echo '# Auto-captured safe defaults for machine '"$machine"' on '"$(date)"''
+    echo '# Source this after the main macos-defaults.sh if you want these values.'
+    echo
+  } > "$out"
+
+  local captured=0
+  for key in "${safe_keys[@]}"; do
+    local val
+    val=$(defaults read $key 2>/dev/null || true)
+    if [[ -n "$val" ]]; then
+      echo "defaults write $key '$val'" >> "$out"
+      ((captured++))
+    fi
+  done
+
+  if (( captured > 0 )); then
+    chmod +x "$out"
+    success "Captured $captured safe defaults → $out"
+  else
+    rm -f "$out"
+    warn "No safe defaults differed from defaults"
+  fi
+}
+
+generate_manual_report() {
+  local machine="$1"
+  local file
+  file=$(machine_manual "$machine")
+  mkdir -p "$(dirname "$file")"
+
+  cat > "$file" <<'MANUAL'
+# Manual steps for this machine
+
+These items were detected during the last backup and are not fully automatable.
+
+## Common items that require manual action
+- Log into LastPass (early)
+- Log into ExpressVPN / Tailscale
+- Enter license keys for Moom, Parallels, CrossOver, CleanMyMac, etc.
+- Sign into Steam / Battle.net and download games
+- Sign into Microsoft 365 apps
+- First-run configuration for many apps
+
+Run `./macForge apply --machine <this-machine>` to see the live list.
+
+MANUAL
+
+  success "Generated/updated $(basename "$file")"
+}
+
+do_backup() {
+  local machine="$1"
+  local yes="${2:-false}"
+  local do_commit="${3:-false}"
+
+  if [[ -z "$machine" ]]; then
+    error "--machine is required"
+    exit 1
+  fi
+
+  local mdir
+  mdir=$(machine_dir "$machine")
+  mkdir -p "$mdir"
+
+  log "Starting aggressive backup for machine '$machine'..."
+
+  # Packages - aggressive
+  local mbrew
+  mbrew=$(machine_brewfile "$machine")
+  touch "$mbrew"
+  discover_apps_to_casks "$mbrew"
+
+  # Also make sure lastpass-cli is present in common (user can move if needed)
+  if ! grep -q 'lastpass-cli' "$COMMON_BREWFILE" 2>/dev/null; then
+    warn "lastpass-cli not found in Brewfile.common - consider adding it"
+  fi
+
+  # Save pre-backup state for possible restore during interactive review
+  local backup_orig_dir="/tmp/macforge-backup-orig-$machine"
+  rm -rf "$backup_orig_dir"
+  mkdir -p "$backup_orig_dir"
+  if [[ -d "$mdir" ]]; then
+    cp -a "$mdir" "$backup_orig_dir/machines-$machine" 2>/dev/null || true
+  fi
+  if [[ -f "$COMMON_BREWFILE" ]]; then
+    cp "$COMMON_BREWFILE" "$backup_orig_dir/Brewfile.common" 2>/dev/null || true
+  fi
+
+  capture_configs "$machine"
+  capture_safe_defaults "$machine"     # autocapture where reasonable
+  generate_manual_report "$machine"
+
+  echo
+  log "Backup population complete."
+
+  # Show summary of what changed (for review)
+  if command_exists git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo
+    log "Git status for review:"
+    git status --short machines/"$machine" Brewfile.common || true
+  fi
+
+  # Interactive review or --yes summary
+  local summary_file="/tmp/macforge-backup-summary-$machine.md"
+  {
+    echo "# macForge backup summary for $machine"
+    echo "Generated: $(date)"
+    echo
+    echo "## Packages / Brewfile changes"
+    echo "(see machines/$machine/Brewfile and Brewfile.common)"
+    echo
+    echo "## Captured configs"
+    find "$(machine_configs_dir "$machine")" -type f 2>/dev/null | head -30 || true
+    echo
+    echo "## Safe defaults captured"
+    cat "$(machine_dir "$machine")/defaults.sh" 2>/dev/null || echo "(none)"
+    echo
+    echo "## Non-automatable (see MANUAL.md)"
+    cat "$(machine_manual "$machine")" 2>/dev/null || true
+  } > "$summary_file"
+
+  if [[ "$yes" == "true" ]]; then
+    log "Non-interactive mode (--yes): showing summary"
+    less -E "$summary_file" || cat "$summary_file"
+    success "Changes accepted via --yes"
+
+    if [[ "$do_commit" == "true" ]] && command_exists git; then
+      git add -A machines/"$machine" Brewfile.common 2>/dev/null || true
+      if git diff --cached --quiet; then
+        warn "Nothing to commit"
+      else
+        git commit -m "backup($machine): aggressive capture via --yes --commit" || true
+        success "Committed"
+      fi
+    fi
+  else
+    # Polished interactive review (simpler reliable version)
+    echo
+    log "Interactive review for machine '$machine'"
+    less -E "$summary_file" || cat "$summary_file"
+    echo
+
+    echo "Sections:"
+    echo "  1. Brewfile/Packages changes"
+    echo "  2. Captured configs"
+    echo "  3. Safe defaults"
+    echo "  4. Non-automatable items"
+    echo
+
+    read -r -p "Accept ALL changes? [y]es / [n]o (will attempt restore) / [q]uit : " ans
+    case "$ans" in
+      [yY]* )
+        success "All changes accepted. They are on disk."
+        ;;
+      [nN]* )
+        echo "Restoring pre-backup state for this machine..."
+        if [[ -d "$backup_orig_dir/machines-$machine" ]]; then
+          rm -rf "$mdir"
+          cp -a "$backup_orig_dir/machines-$machine" "$mdir"
+        fi
+        if [[ -f "$backup_orig_dir/Brewfile.common" ]]; then
+          cp -f "$backup_orig_dir/Brewfile.common" "$COMMON_BREWFILE"
+        fi
+        warn "Restored previous state."
+        ;;
+      * )
+        warn "Review aborted. Changes left as-is for manual git review."
+        ;;
+    esac
+
+    rm -rf "$backup_orig_dir" 2>/dev/null || true
+  fi
+
+  echo
+  log "Backup finished. Commit the machines/$machine directory (and any common changes) when ready."
+}
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+main() {
+  local cmd=""
+  local machine=""
+  local yes="false"
+  local commit="false"
+  local dry_run="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      apply|backup)
+        cmd="$1"
+        shift
+        ;;
+      --machine)
+        machine="$2"
+        shift 2
+        ;;
+      --yes)
+        yes="true"
+        shift
+        ;;
+      --commit)
+        commit="true"
+        shift
+        ;;
+      --dry-run)
+        dry_run="true"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        error "Unknown arg: $1"
+        usage
+        exit 1
+        ;;
+    esac
+  done
+
+  # Pass dry_run globally via env for simplicity in this version
+  export MACFORGE_DRY_RUN="$dry_run"
+  if [[ "$dry_run" == "true" ]]; then
+    echo "=== DRY RUN MODE ==="
+  fi
+
+  case "$cmd" in
+    apply)
+      do_apply "$machine" "$yes"
+      ;;
+    backup)
+      do_backup "$machine" "$yes" "$commit"
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

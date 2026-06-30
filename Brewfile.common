@@ -1,0 +1,163 @@
+# macForge Brewfile
+# Install everything with: brew bundle
+#
+# This file declares your apps and CLI tools so a fresh Mac can be
+# set up reproducibly.
+
+# =============================================================================
+# CLI Tools / Formulae
+# =============================================================================
+
+# Performance & system
+brew "asitop"          # Apple Silicon CPU/GPU monitor
+brew "htop"            # Better top
+
+# Development
+brew "git"
+brew "neovim"
+brew "tmux"
+brew "uv"              # Extremely fast Python package manager
+
+# GNU core tools (better ls, etc.)
+brew "coreutils"
+
+# =============================================================================
+# Core / Bootstrap (installed very early on fresh machines so LastPass is available)
+# =============================================================================
+brew "lastpass-cli"   # LastPass CLI (lpass) - pair with the GUI cask below for password vault
+cask "lastpass"       # LastPass GUI (moved early for bootstrap)
+
+# =============================================================================
+# Fonts
+# =============================================================================
+
+cask "font-meslo-lg-nerd-font"   # Recommended for Powerlevel10k + iTerm2
+
+# =============================================================================
+# Development & Terminals
+# =============================================================================
+
+cask "iterm2"                    # Primary terminal
+cask "cursor"                    # AI-first code editor
+cask "visual-studio-code"        # VS Code
+
+# =============================================================================
+# Productivity & Utilities
+# =============================================================================
+
+cask "aldente"                   # Battery charge limiter
+cask "betterdisplay"             # Advanced display scaling / management
+cask "moom"                      # Powerful window manager
+cask "stats"                     # Menu bar system stats
+cask "tailscale-app"             # Tailscale mesh VPN
+cask "uhk-agent"                 # Ultimate Hacking Keyboard configuration
+cask "cleanmymac"                # Disk cleanup (optional, paid)
+
+# =============================================================================
+# Communication
+# =============================================================================
+
+cask "brave-browser"
+cask "discord"
+cask "slack"
+cask "whatsapp"
+cask "zoom"
+cask "microsoft-teams"
+
+# =============================================================================
+# Microsoft 365 / Office
+# =============================================================================
+
+cask "microsoft-word"
+cask "microsoft-excel"
+cask "microsoft-powerpoint"
+cask "microsoft-outlook"
+# cask "microsoft-onenote"       # Uncomment if you want it explicitly
+cask "onedrive"
+
+# =============================================================================
+# Virtualization & Windows Compatibility
+# =============================================================================
+
+cask "parallels"                 # Parallels Desktop
+cask "crossover"                 # CrossOver (Wine)
+cask "whisky"                    # Modern Wine wrapper
+
+# =============================================================================
+# Media & Entertainment
+# =============================================================================
+
+cask "vlc"
+cask "sonos"
+cask "nvidia-geforce-now"
+
+# =============================================================================
+# Gaming Launchers
+# =============================================================================
+
+cask "steam"
+cask "battle-net"                # For Diablo, StarCraft, Warcraft, etc.
+
+# =============================================================================
+# Retro / Emulation
+# =============================================================================
+
+cask "openemu"
+
+# =============================================================================
+# Other / Sync / NAS
+# =============================================================================
+
+cask "synology-drive"            # Synology Drive Client
+cask "expressvpn"                # VPN
+
+# AI / Local models
+cask "ollama-app"
+
+# =============================================================================
+# Previously noted apps without reliable casks (or manual)
+# =============================================================================
+#
+# - Grok Desktop
+# - AppLocker
+# - Audio Convert Factory
+# - Codex
+# - Custom Widgets
+# - Dark Reader for Safari (Safari extension)
+# - Google Docs / Drive / Sheets / Slides (web apps / PWAs)
+# - Microsoft Defender (usually comes with Office or enterprise)
+# - MusicBrainz Picard
+# - Tag Editor Lite
+# - Windows App (Microsoft Remote Desktop)
+# - Various games (installed via Battle.net / Steam / Parallels)
+#
+# Paid or license-heavy apps you may prefer to install manually:
+# - CleanMyMac X (cask exists but requires license)
+# - Parallels Desktop (license)
+# - Moom Classic (license)
+# - CrossOver (license)
+#
+# Safari extensions and some App Store apps are best installed via the App Store.
+
+# =============================================================================
+# Mac App Store support (uncomment to use)
+# =============================================================================
+# brew "mas"
+#
+# Example:
+# mas "Xcode", id: 497799835
+
+# =============================================================================
+# How to maintain this file
+# =============================================================================
+#
+# On your current Mac you can explore what you have:
+#   brew bundle dump --force
+#
+# Then curate this file.
+#
+# After editing:
+#   brew bundle
+#
+# To check what would be installed:
+#   brew bundle check

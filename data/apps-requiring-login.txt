@@ -1,0 +1,21 @@
+# List of applications that, even after `brew install --cask`, almost always require
+# manual login, license activation, or first-run interaction.
+#
+# Used by macForge to print a clear "no scripted login" section after apply.
+#
+# One per line, free form description is fine.
+
+LastPass (GUI login or `lpass login`)
+ExpressVPN (account login)
+Tailscale (login)
+Moom (license key)
+Parallels Desktop (license + VM config)
+CrossOver (license)
+CleanMyMac (subscription / login)
+Battle.net (login + game installs)
+Steam (login + game installs)
+Microsoft 365 / Word / Excel / Outlook / Teams (sign-in)
+UHK Agent (keyboard configuration)
+Sonos (account)
+Grok Desktop (manual install / update)
+Whisky (first run setup)

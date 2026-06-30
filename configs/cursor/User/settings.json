@@ -1,0 +1,9 @@
+{
+  "//": "Cursor settings.json - place your actual settings here",
+  "//": "Export from Cursor: Command Palette → 'Preferences: Open User Settings (JSON)'",
+  "editor.fontFamily": "MesloLGS Nerd Font, Menlo, Monaco, 'Courier New', monospace",
+  "editor.fontSize": 14,
+  "editor.tabSize": 2,
+  "workbench.colorTheme": "Default Dark+",
+  "terminal.integrated.fontFamily": "MesloLGS Nerd Font"
+}

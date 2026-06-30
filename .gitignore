@@ -1,0 +1,19 @@
+# macForge
+
+# OS
+.DS_Store
+*.swp
+*~
+
+# Local / private (do not commit)
+local/
+secrets/
+.env
+*.local
+
+# Backup files created during install (if any)
+*.bak
+
+# Temporary
+tmp/
+*.tmp

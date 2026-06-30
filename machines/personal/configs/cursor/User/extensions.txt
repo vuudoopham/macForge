@@ -1,0 +1,7 @@
+# List of Cursor extensions (one ID per line)
+# Generate with: cursor --list-extensions
+# Then install with: xargs -n1 cursor --install-extension < extensions.txt
+
+# Example:
+# ms-vscode-remote.remote-ssh
+# esbenp.prettier-vscode

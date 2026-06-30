@@ -1,0 +1,20 @@
+# machines/personal/Brewfile
+# Additional packages specific to this machine (beyond Brewfile.common).
+# 
+# During apply we run:
+#   brew bundle --file=Brewfile.common
+#   brew bundle --file=machines/personal/Brewfile
+#
+# Populate this aggressively via:
+#   ./macForge backup --machine personal
+#
+# Keep this file small and personal-specific only. Common things live in Brewfile.common.
+
+# Example (uncomment if this machine needs something extra):
+# brew "some-personal-tool"
+# cask "some-personal-app"
+cask "betterdisplay"   # BetterDisplay.app
+cask "brave-browser"   # Brave Browser.app
+cask "expressvpn"   # ExpressVPN.app
+cask "ollama-app"   # Ollama.app
+cask "stats"   # Stats.app
