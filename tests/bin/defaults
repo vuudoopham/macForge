@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Simple mock for defaults command
+echo "defaults $*" >> "${MOCK_LOG:-/tmp/macforge-mock.log}"
+# For read, return some sample values if asked for known keys
+if [[ "$1" == "read" ]]; then
+  key="$2"
+  case "$key" in
+    "com.apple.dock tilesize") echo "48" ;;
+    "com.apple.dock autohide") echo "1" ;;
+    *) echo "0" ;;  # default
+  esac
+fi
+exit 0

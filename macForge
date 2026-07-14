@@ -51,7 +51,7 @@ Options:
   --machine NAME   Required. e.g. personal, wife-macbook, work
   --yes            Non-interactive. Auto-accept changes (backup) and skip prompts.
   --commit         With --yes on backup: attempt to git add + commit the changes.
-  --dry-run        Show what would be done without making changes (limited support).
+  --dry-run        Show what would be done without making changes.
 
 Examples:
   ./macForge backup --machine personal
@@ -83,6 +83,10 @@ machine_manual() {
 # Core install steps (refactored from old install, generalized for machines)
 # -----------------------------------------------------------------------------
 install_xcode_cli() {
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would check/install Xcode Command Line Tools"
+    return
+  fi
   log "Checking Xcode Command Line Tools..."
   if xcode-select -p &>/dev/null; then
     success "Xcode Command Line Tools already installed"
@@ -95,6 +99,10 @@ install_xcode_cli() {
 }
 
 install_homebrew() {
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would check/install Homebrew"
+    return
+  fi
   log "Checking Homebrew..."
   if command_exists brew; then
     success "Homebrew already installed"
@@ -200,6 +208,10 @@ restore_configs() {
 }
 
 restore_editor_configs() {
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would restore editor configurations"
+    return
+  fi
   # Uses the already copied files from restore_configs
   local machine="$1"
   log "Restoring editor configurations (if present)..."
@@ -258,7 +270,7 @@ report_no_scripted_login() {
   echo
   log "Applications installed that do not support scripted login:"
 
-  local datafile="$SCRIPT_DIR/data/apps-requiring-login.txt"
+  local datafile="${DATA_FILE:-$SCRIPT_DIR/data/apps-requiring-login.txt}"
   if [[ -f "$datafile" ]]; then
     # Read non-comment lines
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -321,16 +333,20 @@ do_apply() {
   install_homebrew
 
   # Early core for LastPass (the Brewfile.common has the early section)
-  log "Installing early core packages (LastPass)..."
-  brew bundle --file="$COMMON_BREWFILE" || true
-
-  echo
-  warn "Core tools including LastPass are installed."
-  echo "Please open LastPass (GUI or run 'lpass login') and authenticate now."
-  if [[ "$yes" != "true" ]]; then
-    read -r -p "Press Enter when ready to continue with the rest of the setup... "
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would install early core packages (LastPass) from Brewfile.common"
   else
-    echo "(--yes mode: continuing without waiting)"
+    log "Installing early core packages (LastPass)..."
+    brew bundle --file="$COMMON_BREWFILE" || true
+
+    echo
+    warn "Core tools including LastPass are installed."
+    echo "Please open LastPass (GUI or run 'lpass login') and authenticate now."
+    if [[ "$yes" != "true" ]]; then
+      read -r -p "Press Enter when ready to continue with the rest of the setup... "
+    else
+      echo "(--yes mode: continuing without waiting)"
+    fi
   fi
 
   install_packages "$machine"
@@ -560,6 +576,11 @@ do_backup() {
     exit 1
   fi
 
+  if [[ "${MACFORGE_DRY_RUN:-false}" == "true" ]]; then
+    log "[DRY-RUN] Would perform aggressive backup for machine '$machine'"
+    return
+  fi
+
   local mdir
   mdir=$(machine_dir "$machine")
   mkdir -p "$mdir"
@@ -741,4 +762,8 @@ main() {
   esac
 }
 
-main "$@"
+# Only run main() when the script is executed directly (not sourced).
+# This makes the script much easier to test with BATS.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

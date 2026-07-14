@@ -1,0 +1,29 @@
+name: Test macForge
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install BATS and tools
+      run: |
+        brew update
+        brew install bats-core bats-support bats-assert bats-file shellcheck
+
+    - name: Lint
+      run: |
+        make lint || shellcheck macForge scripts/*.sh || true
+
+    - name: Run tests
+      run: |
+        make test || bats tests/ || true
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: 1

@@ -17,3 +17,12 @@ secrets/
 # Temporary
 tmp/
 *.tmp
+
+# Aider / AI assistant local artifacts
+.aider*
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
+
+# Accidental / ephemeral machine profiles from test runs
+machines/golden-test/

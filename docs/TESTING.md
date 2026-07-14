@@ -1,6 +1,35 @@
 # Testing macForge
 
-## Host testing (recommended for development)
+## Automated Tests (BATS)
+
+We use [BATS](https://github.com/bats-core/bats-core) for unit and integration tests.
+
+### Running the test suite
+
+```bash
+# Install once
+brew install bats-core bats-support bats-assert bats-file
+
+# From the project root
+bats tests/
+```
+
+You can also run subsets:
+
+```bash
+bats tests/unit/
+bats tests/integration/
+```
+
+### Adding tests
+
+- Pure logic (e.g. cask name mapping) → `tests/unit/`
+- Flow behavior with mocks → `tests/integration/`
+- Real fixture-based or end-to-end scenarios → `tests/` or `tests/e2e/`
+
+See `tests/test_helper.bash` for common setup (temp HOME, copied macForge, etc.).
+
+## Manual / Host testing (recommended for development)
 
 ```bash
 # Capture changes

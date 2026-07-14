@@ -148,6 +148,18 @@ Still works as a thin wrapper for the `personal` machine:
 
 Prefer the explicit `./macForge apply --machine ...` going forward.
 
+## Testing
+
+See `docs/TESTING.md` and the `tests/` directory (BATS-based unit + integration tests).
+
+Quick start:
+```bash
+brew install bats-core bats-support bats-assert bats-file
+make test
+# or
+./tests/run_tests.sh
+```
+
 ## Contributing / Personalization
 
 This repo is designed to hold configurations for multiple people/machines.

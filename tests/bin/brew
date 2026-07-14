@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Mock brew for testing macForge
+# Records calls to a log file for assertions.
+
+MOCK_LOG="${MOCK_LOG:-/tmp/macforge-mock-brew.log}"
+echo "brew $*" >> "$MOCK_LOG"
+
+case "$1" in
+  bundle)
+    # Simulate successful bundle
+    echo "Mock: brew bundle $*"
+    exit 0
+    ;;
+  info)
+    # For cask discovery in tests, we can make it succeed for known tokens
+    if [[ "$2" == "--cask" ]]; then
+      token="$3"
+      case "$token" in
+        brave-browser|iterm2|cursor|visual-studio-code|aldente|betterdisplay|moom|stats|lastpass|expressvpn|ollama-app|tailscale-app|uhk-agent|vlc|zoom|discord|slack|whatsapp|microsoft-teams|microsoft-word|microsoft-excel|microsoft-powerpoint|microsoft-outlook|onedrive|steam|battle-net|parallels|crossover|whisky|nvidia-geforce-now|openemu|sonos|synology-drive|font-meslo-lg-nerd-font)
+          echo "Mock: cask $token exists"
+          exit 0
+          ;;
+        *)
+          echo "Error: Cask '$token' not found." >&2
+          exit 1
+          ;;
+      esac
+    fi
+    echo "Mock: brew info $*"
+    exit 0
+    ;;
+  --version)
+    echo "Homebrew 4.3.0"
+    exit 0
+    ;;
+  *)
+    echo "Mock: brew $*"
+    exit 0
+    ;;
+esac

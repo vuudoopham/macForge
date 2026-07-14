@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "osascript $*" >> "${MOCK_LOG:-/tmp/macforge-mock.log}"
+exit 0

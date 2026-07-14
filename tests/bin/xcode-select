@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+echo "xcode-select $*" >> "${MOCK_LOG:-/tmp/macforge-mock.log}"
+if [[ "$1" == "-p" ]]; then
+  # Simulate installed
+  echo "/Applications/Xcode.app/Contents/Developer"
+  exit 0
+fi
+exit 0

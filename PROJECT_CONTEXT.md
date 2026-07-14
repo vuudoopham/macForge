@@ -227,6 +227,19 @@ See `docs/TESTING.md` for host + Parallels VM guidance.
 3. `ls -R machines/`
 4. Read README.md + this file
 5. To continue development: follow the 7-task list or current open items in conversation history
+
+## Testing (added 2026-06-29+)
+
+A BATS-based test suite has been introduced:
+
+- Unit tests for core logic (cask guessing, helpers, reports)
+- Integration tests with mocked external commands
+- Makefile: `make test`, `make lint`
+- See docs/TESTING.md for how to run
+
+Current status: Core unit tests (11+) passing. Integration harness in place. More coverage for full flows and E2E planned.
+
+To run: `make test` (after `brew install bats-core bats-support ...`) or `./tests/run_tests.sh`
 6. To add support for a new user/machine: have them run `backup --machine <their-name>` on their Mac
 
 Update this document after every major change or handoff.
